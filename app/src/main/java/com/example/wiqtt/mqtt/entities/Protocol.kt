@@ -1,4 +1,4 @@
-package com.example.wiqtt.mqtt
+package com.example.wiqtt.mqtt.entities
 
 enum class Protocol(val str: String) {
     TCP("tcp"),

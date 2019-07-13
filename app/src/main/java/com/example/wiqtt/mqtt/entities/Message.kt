@@ -1,4 +1,4 @@
-package com.example.wiqtt.mqtt
+package com.example.wiqtt.mqtt.entities
 
 import android.os.Parcelable
 import io.requery.*

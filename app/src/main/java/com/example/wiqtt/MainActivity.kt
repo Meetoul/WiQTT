@@ -2,40 +2,34 @@ package com.example.wiqtt
 
 import android.os.Bundle
 import android.util.Log
-import com.google.android.material.floatingactionbutton.FloatingActionButton
-import com.google.android.material.snackbar.Snackbar
-import androidx.core.view.GravityCompat
-import androidx.appcompat.app.ActionBarDrawerToggle
+import android.view.Menu
 import android.view.MenuItem
-import androidx.drawerlayout.widget.DrawerLayout
-import com.google.android.material.navigation.NavigationView
+import android.widget.TextView
+import android.widget.Toast
+import androidx.appcompat.app.ActionBarDrawerToggle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
-import android.view.Menu
-import com.example.wiqtt.mqtt.Broker
-import com.example.wiqtt.mqtt.Protocol
-import org.eclipse.paho.android.service.MqttAndroidClient
-import org.eclipse.paho.client.mqttv3.IMqttActionListener
-import org.eclipse.paho.client.mqttv3.IMqttToken
-import org.eclipse.paho.client.mqttv3.MqttConnectOptions
-import org.eclipse.paho.client.mqttv3.MqttMessage
+import androidx.core.view.GravityCompat
+import androidx.drawerlayout.widget.DrawerLayout
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.example.wiqtt.mqtt.*
+import com.example.wiqtt.mqtt.entities.*
+import com.google.android.material.floatingactionbutton.FloatingActionButton
+import com.google.android.material.navigation.NavigationView
+import com.google.android.material.snackbar.Snackbar
 
-
-class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener {
+class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener,
+    IMqttConnectListener {
 
     private val TAG = "WiQTT"
 
-    private val mHost = "192.168.1.1"
-    private val mPort = 1883
-    private val mUri = "tcp://$mHost:$mPort"
     private val mClientId = "wiqtt-client"
 
-    private val mTopic = "cmnd/room_light/power"
-    private val mMessage = "toggle"
-
-    private lateinit var mMqttAndroidClient: MqttAndroidClient
+    private lateinit var mMqttClient: MqttClient
 
     private val mBrokers = mutableListOf<Broker>()
+    private lateinit var mMessageListAdapter: MessageListAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -45,8 +39,8 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
         val fab: FloatingActionButton = findViewById(R.id.fab)
         fab.setOnClickListener { view ->
-            val messageSent = publishMessage()
-            Snackbar.make(view, "Message sending status: $messageSent", Snackbar.LENGTH_LONG)
+            publishMessage()
+            Snackbar.make(view, "Message sending", Snackbar.LENGTH_LONG)
                 .setAction("Action", null).show()
         }
         val drawerLayout: DrawerLayout = findViewById(R.id.drawer_layout)
@@ -59,44 +53,83 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
         navView.setNavigationItemSelectedListener(this)
 
+        val message = MessageEntity()
+        message.setTopic("cmnd/room_light/power")
+        message.setPayload("toggle")
+
+        mMessageListAdapter =
+            MessageListAdapter(mutableListOf(message, message, message, message, message, message, message))
+
+        val messageRecyclerView: RecyclerView = findViewById(R.id.message_recycler_view)
+        messageRecyclerView.apply {
+            adapter = mMessageListAdapter
+        }
+
         loadBrokers()
 
-        mMqttAndroidClient = MqttAndroidClient(applicationContext, mUri, mClientId)
+        mMqttClient = MqttClient(
+            applicationContext, mClientId, this,
+            object : IMqttPublishListener {
+                override fun onPublishSuccess(message: Message) {
+                    Log.i(TAG, "Message published")
+                }
 
-        val mqttConnectOptions = MqttConnectOptions()
-        mqttConnectOptions.isAutomaticReconnect = true
-        mqttConnectOptions.isCleanSession = false
+                override fun onPublishFailed(message: Message, exception: Throwable?) {
+                    Log.e(TAG, "Message not published, reason ${exception?.message}")
+                }
+            })
+    }
 
-        mMqttAndroidClient.connect(mqttConnectOptions, object : IMqttActionListener {
-            override fun onSuccess(asyncActionToken: IMqttToken?) {
-                Log.i(TAG, "Connection success")
-            }
+    private fun showToast(text: String) {
+        val toast = Toast.makeText(applicationContext, text, Toast.LENGTH_SHORT)
+        toast.show()
+    }
 
-            override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
-                Log.e(TAG, "Connection failed")
-                Log.e(TAG, exception?.message)
-            }
-        })
+    override fun onConnectSuccess(broker: Broker) {
+        showToast("Successfully connected to ${broker.name}.")
+        val brokerNameTextView: TextView = findViewById(R.id.nav_broker_name)
+        brokerNameTextView.text = broker.name
+
+        val brokerIpTextView: TextView = findViewById(R.id.nav_broker_uri)
+        brokerIpTextView.text = brokerAsUri(broker)
+    }
+
+    override fun onConnectFailed(broker: Broker, exception: Throwable?) {
+        showToast("Connection to ${broker.name} failed.")
+    }
+
+    override fun onDisconnectSuccess(broker: Broker) {
+        showToast("Successfully disconnected from ${broker.name}.")
+    }
+
+    override fun onDisconnectFailed(broker: Broker, exception: Throwable?) {
+        showToast("Can't disconnect from ${broker.name}.")
     }
 
     fun loadBrokers() {
+        val broker = BrokerEntity()
+        broker.setName("Home")
+        broker.setHost("192.168.1.1")
+        broker.setPort(1883)
+        broker.setProtocol(Protocol.TCP)
+
+        mBrokers.add(broker)
+
         val brokers = mBrokers
         val navView: NavigationView = findViewById(R.id.nav_view)
         val navViewMenu = navView.menu
         val brokersSubmenu = navViewMenu.findItem(R.id.nav_broker_menu).subMenu
 
-        for (broker in brokers) {
-            brokersSubmenu.add(R.id.nav_broker_group, broker.hashCode(), Menu.NONE, broker.name)
+        brokers.forEachIndexed { index, broker ->
+            brokersSubmenu.add(R.id.nav_broker_group, index, Menu.NONE, broker.name)
         }
     }
 
-    fun publishMessage(): Boolean {
-        val message = MqttMessage(mMessage.toByteArray())
-        mMqttAndroidClient.publish(mTopic, message)
-        if (!mMqttAndroidClient.isConnected) {
-            return false
-        }
-        return true
+    fun publishMessage() {
+        val message = MessageEntity()
+        message.setTopic("cmnd/room_light/power")
+        message.setPayload("toggle")
+        mMqttClient.publishMessage(message)
     }
 
     override fun onBackPressed() {
@@ -126,13 +159,23 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
     override fun onNavigationItemSelected(item: MenuItem): Boolean {
         // Handle navigation view item clicks here.
-        when (item.itemId) {
-//            R.id.nav_share -> {
-//
-//            }
+        var closeDrawer = false
+        when (val itemId = item.itemId) {
+            R.id.nav_add_broker -> {
+                closeDrawer = true
+            }
+            else -> {
+                val broker = mBrokers.get(itemId)
+
+                Log.i(TAG, "Connecting to broker ${broker.name}")
+                mMqttClient.connect(broker)
+            }
         }
-        val drawerLayout: DrawerLayout = findViewById(R.id.drawer_layout)
-        drawerLayout.closeDrawer(GravityCompat.START)
+        if (closeDrawer) {
+            val drawerLayout: DrawerLayout = findViewById(R.id.drawer_layout)
+            drawerLayout.closeDrawer(GravityCompat.START)
+        }
+
         return true
     }
 }

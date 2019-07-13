@@ -14,6 +14,7 @@
         android:gravity="bottom">
 
     <TextView
+            android:id="@+id/nav_broker_name"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:paddingTop="@dimen/nav_header_vertical_spacing"
@@ -21,9 +22,9 @@
             android:textAppearance="@style/TextAppearance.AppCompat.Body1"/>
 
     <TextView
+            android:id="@+id/nav_broker_uri"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/nav_header_subtitle"
-            android:id="@+id/textView"/>
+            android:text="@string/nav_header_subtitle"/>
 
 </LinearLayout>

@@ -1,4 +1,4 @@
-package com.example.wiqtt.mqtt
+package com.example.wiqtt.mqtt.entities
 
 import android.os.Parcelable
 import io.requery.*
@@ -17,8 +17,4 @@ interface Broker : Parcelable, Persistable {
 
     @get:OneToMany(mappedBy = "broker")
     val messages: MutableList<Message>
-
-    fun getUri(): String {
-        return "${protocol.str}://$host:$port"
-    }
 }
