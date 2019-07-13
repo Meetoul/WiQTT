@@ -12,6 +12,8 @@ import com.google.android.material.navigation.NavigationView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.Toolbar
 import android.view.Menu
+import com.example.wiqtt.mqtt.Broker
+import com.example.wiqtt.mqtt.Protocol
 import org.eclipse.paho.android.service.MqttAndroidClient
 import org.eclipse.paho.client.mqttv3.IMqttActionListener
 import org.eclipse.paho.client.mqttv3.IMqttToken
@@ -32,6 +34,8 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     private val mMessage = "toggle"
 
     private lateinit var mMqttAndroidClient: MqttAndroidClient
+
+    private val mBrokers = mutableListOf<Broker>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -55,13 +59,15 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
         navView.setNavigationItemSelectedListener(this)
 
+        loadBrokers()
+
         mMqttAndroidClient = MqttAndroidClient(applicationContext, mUri, mClientId)
 
         val mqttConnectOptions = MqttConnectOptions()
         mqttConnectOptions.isAutomaticReconnect = true
         mqttConnectOptions.isCleanSession = false
 
-        mMqttAndroidClient.connect(mqttConnectOptions, object: IMqttActionListener{
+        mMqttAndroidClient.connect(mqttConnectOptions, object : IMqttActionListener {
             override fun onSuccess(asyncActionToken: IMqttToken?) {
                 Log.i(TAG, "Connection success")
             }
@@ -71,7 +77,17 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                 Log.e(TAG, exception?.message)
             }
         })
+    }
 
+    fun loadBrokers() {
+        val brokers = mBrokers
+        val navView: NavigationView = findViewById(R.id.nav_view)
+        val navViewMenu = navView.menu
+        val brokersSubmenu = navViewMenu.findItem(R.id.nav_broker_menu).subMenu
+
+        for (broker in brokers) {
+            brokersSubmenu.add(R.id.nav_broker_group, broker.hashCode(), Menu.NONE, broker.name)
+        }
     }
 
     fun publishMessage(): Boolean {
@@ -111,24 +127,9 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
     override fun onNavigationItemSelected(item: MenuItem): Boolean {
         // Handle navigation view item clicks here.
         when (item.itemId) {
-            R.id.nav_home -> {
-                // Handle the camera action
-            }
-            R.id.nav_gallery -> {
-
-            }
-            R.id.nav_slideshow -> {
-
-            }
-            R.id.nav_tools -> {
-
-            }
-            R.id.nav_share -> {
-
-            }
-            R.id.nav_send -> {
-
-            }
+//            R.id.nav_share -> {
+//
+//            }
         }
         val drawerLayout: DrawerLayout = findViewById(R.id.drawer_layout)
         drawerLayout.closeDrawer(GravityCompat.START)
