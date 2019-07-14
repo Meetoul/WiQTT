@@ -3,9 +3,11 @@
           package="com.example.wiqtt">
 
     <!-- Permissions the Application Requires -->
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="com.android.launcher.permission.INSTALL_SHORTCUT"/>
+    <uses-permission android:name="com.android.launcher.permission.UNINSTALL_SHORTCUT"/>
 
     <application
             android:allowBackup="true"
@@ -14,6 +16,10 @@
             android:roundIcon="@mipmap/ic_launcher_round"
             android:supportsRtl="true"
             android:theme="@style/AppTheme">
+        <activity android:name=".MessageCreationActivity">
+        </activity>
+        <activity android:name=".BrokerCreationActivity">
+        </activity>
 
         <service android:name="org.eclipse.paho.android.service.MqttService">
         </service>

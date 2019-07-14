@@ -14,5 +14,5 @@ interface Message : Parcelable, Persistable {
     val payload: String
 
     @get:ManyToOne
-    val broker: Broker
+    var broker: Broker
 }

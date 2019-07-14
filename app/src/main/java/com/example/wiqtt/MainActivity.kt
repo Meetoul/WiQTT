@@ -1,5 +1,6 @@
 package com.example.wiqtt
 
+import android.content.Intent
 import android.os.Bundle
 import android.util.Log
 import android.view.Menu
@@ -17,19 +18,28 @@ import com.example.wiqtt.mqtt.*
 import com.example.wiqtt.mqtt.entities.*
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.navigation.NavigationView
-import com.google.android.material.snackbar.Snackbar
+import io.requery.android.sqlite.DatabaseSource
+import io.requery.kotlin.eq
+import io.requery.sql.KotlinEntityDataStore
+import javax.sql.DataSource
 
 class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelectedListener,
     IMqttConnectListener {
 
     private val TAG = "WiQTT"
 
+    private val BROKER_REQ_CODE = 0
+    private val MESSAGE_REQ_CODE = 1
+
     private val mClientId = "wiqtt-client"
 
     private lateinit var mMqttClient: MqttClient
 
-    private val mBrokers = mutableListOf<Broker>()
+    private var mCurrentBroker: Broker? = null
+
     private lateinit var mMessageListAdapter: MessageListAdapter
+
+    private lateinit var mDataStore: KotlinEntityDataStore<Any>
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -37,12 +47,12 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         val toolbar: Toolbar = findViewById(R.id.toolbar)
         setSupportActionBar(toolbar)
 
-        val fab: FloatingActionButton = findViewById(R.id.fab)
-        fab.setOnClickListener { view ->
-            publishMessage()
-            Snackbar.make(view, "Message sending", Snackbar.LENGTH_LONG)
-                .setAction("Action", null).show()
+        val messageAddButton: FloatingActionButton = findViewById(R.id.message_add)
+
+        messageAddButton.setOnClickListener {
+            startActivityForResult(Intent(applicationContext, MessageCreationActivity::class.java), MESSAGE_REQ_CODE)
         }
+
         val drawerLayout: DrawerLayout = findViewById(R.id.drawer_layout)
         val navView: NavigationView = findViewById(R.id.nav_view)
         val toggle = ActionBarDrawerToggle(
@@ -53,19 +63,18 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
         navView.setNavigationItemSelectedListener(this)
 
-        val message = MessageEntity()
-        message.setTopic("cmnd/room_light/power")
-        message.setPayload("toggle")
+        val source = DatabaseSource(applicationContext, Models.DEFAULT, 1)
+        mDataStore = KotlinEntityDataStore(source.configuration)
 
-        mMessageListAdapter =
-            MessageListAdapter(mutableListOf(message, message, message, message, message, message, message))
+        mMessageListAdapter = MessageListAdapter(mutableListOf(), ::onMessageClicked)
 
+        val viewManager = LinearLayoutManager(this)
         val messageRecyclerView: RecyclerView = findViewById(R.id.message_recycler_view)
+
         messageRecyclerView.apply {
             adapter = mMessageListAdapter
+            layoutManager = viewManager
         }
-
-        loadBrokers()
 
         mMqttClient = MqttClient(
             applicationContext, mClientId, this,
@@ -78,11 +87,66 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
                     Log.e(TAG, "Message not published, reason ${exception?.message}")
                 }
             })
+
+        reloadBrokers()
     }
+
+    private fun reloadBrokers() {
+        val navView: NavigationView = findViewById(R.id.nav_view)
+        val navViewMenu = navView.menu
+        val brokersSubmenu = navViewMenu.findItem(R.id.nav_broker_menu).subMenu
+        brokersSubmenu.clear()
+
+        // TODO: Investigate how to use mDataStore.invoke { ... }
+        val brokers = mDataStore.select(Broker::class).get()
+
+        brokers.forEach { broker ->
+            brokersSubmenu.add(R.id.nav_broker_group, broker.id, Menu.NONE, broker.name)
+        }
+
+    }
+
+    private fun reloadMessages() {
+        mDataStore.invoke {
+            val result = select(Message::class) where (Message::broker eq mCurrentBroker)
+            val messages = result.get().toList()
+            mMessageListAdapter.reloadMessages(messages)
+        }
+    }
+
 
     private fun showToast(text: String) {
         val toast = Toast.makeText(applicationContext, text, Toast.LENGTH_SHORT)
         toast.show()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        when (requestCode) {
+            BROKER_REQ_CODE -> {
+                if (resultCode == 0) {
+                    data ?: return
+                    val extras = data.extras ?: return
+
+                    val broker = extras.getParcelable<Broker>(resources.getString(R.string.broker_intent_extra))
+                    broker?.let {
+                        mDataStore.insert(broker)
+                        reloadBrokers()
+                    }
+                }
+            }
+            MESSAGE_REQ_CODE -> {
+                data ?: return
+                val extras = data.extras ?: return
+
+                val message = extras.getParcelable<Message>(resources.getString(R.string.message_intent_extra))
+                message?.let {
+                    message.broker = mCurrentBroker ?: return
+                    mDataStore.insert(message)
+                    reloadMessages()
+                }
+            }
+        }
+
     }
 
     override fun onConnectSuccess(broker: Broker) {
@@ -92,6 +156,8 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
 
         val brokerIpTextView: TextView = findViewById(R.id.nav_broker_uri)
         brokerIpTextView.text = brokerAsUri(broker)
+
+        reloadMessages()
     }
 
     override fun onConnectFailed(broker: Broker, exception: Throwable?) {
@@ -106,31 +172,16 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         showToast("Can't disconnect from ${broker.name}.")
     }
 
-    fun loadBrokers() {
-        val broker = BrokerEntity()
-        broker.setName("Home")
-        broker.setHost("192.168.1.1")
-        broker.setPort(1883)
-        broker.setProtocol(Protocol.TCP)
 
-        mBrokers.add(broker)
-
-        val brokers = mBrokers
-        val navView: NavigationView = findViewById(R.id.nav_view)
-        val navViewMenu = navView.menu
-        val brokersSubmenu = navViewMenu.findItem(R.id.nav_broker_menu).subMenu
-
-        brokers.forEachIndexed { index, broker ->
-            brokersSubmenu.add(R.id.nav_broker_group, index, Menu.NONE, broker.name)
+    private fun onMessageClicked(message: Message, isShortClick: Boolean) {
+        if (isShortClick) {
+            mMqttClient.publishMessage(message)
+        } else {
+            ShortcutHelper.createMessageShortcut(applicationContext, message)
         }
+
     }
 
-    fun publishMessage() {
-        val message = MessageEntity()
-        message.setTopic("cmnd/room_light/power")
-        message.setPayload("toggle")
-        mMqttClient.publishMessage(message)
-    }
 
     override fun onBackPressed() {
         val drawerLayout: DrawerLayout = findViewById(R.id.drawer_layout)
@@ -163,12 +214,15 @@ class MainActivity : AppCompatActivity(), NavigationView.OnNavigationItemSelecte
         when (val itemId = item.itemId) {
             R.id.nav_add_broker -> {
                 closeDrawer = true
+                startActivityForResult(Intent(applicationContext, BrokerCreationActivity::class.java), BROKER_REQ_CODE)
             }
             else -> {
-                val broker = mBrokers.get(itemId)
-
-                Log.i(TAG, "Connecting to broker ${broker.name}")
-                mMqttClient.connect(broker)
+                mDataStore.invoke {
+                    val result = select(Broker::class) where (Broker::id eq itemId) limit 5
+                    val broker = result.get().first()
+                    mMqttClient.connect(broker)
+                    mCurrentBroker = broker
+                }
             }
         }
         if (closeDrawer) {
